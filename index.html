@@ -98,6 +98,10 @@ html,body,#app{height:100%;margin:0;background:#0E1C19;}
 @media (max-width:480px){ .card{width:54px;height:78px;} .card .big{font-size:26px;} .bt-title{font-size:24px;} }
 @media (prefers-reduced-motion: reduce){ .card,.verdict{animation:none;} }
 
+.bt-odds { margin-top:8px; font-size:12px; letter-spacing:.05em; color:#8FB0A2; }
+.bt-odds b { color:var(--gold); font-weight:600; font-size:13px; }
+.bt-odds .spin { color:#6d8f81; font-style:italic; }
+
 </style>
 </head>
 <body>
@@ -200,6 +204,48 @@ function reasonFor(cards, up, best) {
   return "Hit — the hand is too low to stand.";
 }
 
+/* ---- win-odds estimator: Monte-Carlo simulation ---- */
+var ODDS_TRIALS = 15000;
+function reducedPool(playerCards, upCard){
+  var pool = buildShoe(6);
+  function removeOne(rank){ for (var i=0;i<pool.length;i++){ if (pool[i].rank===rank){ pool.splice(i,1); return; } } }
+  playerCards.forEach(function(c){ removeOne(c.rank); });
+  removeOne(upCard.rank);
+  return pool;
+}
+function estimateOdds(playerCards, upCard, trials){
+  trials = trials || ODDS_TRIALS;
+  var pool = reducedPool(playerCards, upCard);
+  var N = pool.length, idx = 0;
+  function draw(){ var j = idx + ((Math.random()*(N-idx))|0); var c = pool[j]; pool[j]=pool[idx]; pool[idx]=c; idx++; return c; }
+  var pNat = playerCards.length===2 && handValue(playerCards).total===21;
+  var win=0, push=0, lose=0;
+  for (var t=0; t<trials; t++){
+    idx = 0;
+    var ph = playerCards.slice();
+    while (true){
+      var mv = optimalMove(ph, upCard.value, {canDouble: ph.length===2, canSplit:false});
+      if (mv==="stand") break;
+      if (mv==="double"){ ph.push(draw()); break; }
+      ph.push(draw());                       /* hit */
+      if (handValue(ph).total > 21) break;
+    }
+    var dh = [upCard, draw()];
+    while (handValue(dh).total < 17) dh.push(draw());
+    var pv = handValue(ph).total, dv = handValue(dh).total;
+    var dNat = dh.length===2 && dv===21;
+    if (pv>21) lose++;
+    else if (dNat && pNat) push++;
+    else if (dNat) lose++;
+    else if (pNat) win++;
+    else if (dv>21 || pv>dv) win++;
+    else if (pv<dv) lose++;
+    else push++;
+  }
+  var w = Math.round(win/trials*100), p = Math.round(push/trials*100);
+  return { win:w, push:p, lose:100-w-p };
+}
+
 /* ---- app state ---- */
 var S = { shoe: buildShoe(6), dealer: [], hands: [], active: 0,
           phase: "idle", verdict: null, hint: null,
@@ -213,7 +259,7 @@ function deal(){
   if (S.shoe.length < 25) S.shoe = buildShoe(6);
   var p1=S.shoe.pop(), d1=S.shoe.pop(), p2=S.shoe.pop(), d2=S.shoe.pop();
   S.dealer=[d1,d2];
-  S.hands=[{cards:[p1,p2],done:false,doubled:false,fromSplit:false,result:null}];
+  S.hands=[{cards:[p1,p2],done:false,doubled:false,fromSplit:false,result:null,odds:null}];
   S.active=0; S.verdict=null; S.hint=null;
   var pNat = handValue([p1,p2]).total===21;
   var dNat = handValue(S.dealer).total===21;
@@ -261,14 +307,15 @@ function act(action){
 
   if (action==="split"){
     var c1=h.cards[0], c2=h.cards[1], aces=c1.rank==="A";
-    var nh1={cards:[c1,S.shoe.pop()],done:aces,doubled:false,fromSplit:true,result:null};
-    var nh2={cards:[c2,S.shoe.pop()],done:aces,doubled:false,fromSplit:true,result:null};
+    var nh1={cards:[c1,S.shoe.pop()],done:aces,doubled:false,fromSplit:true,result:null,odds:null};
+    var nh2={cards:[c2,S.shoe.pop()],done:aces,doubled:false,fromSplit:true,result:null,odds:null};
     S.hands = S.hands.slice(0,S.active).concat([nh1,nh2], S.hands.slice(S.active+1));
     if (aces) advance(); else render();
     return;
   }
   if (action==="hit"){
     h.cards.push(S.shoe.pop());
+    h.odds = null;                       /* hand changed -> recompute odds */
     if (handValue(h.cards).total>21) h.done=true;
     if (h.done) advance(); else render();
     return;
@@ -323,9 +370,17 @@ function render(){
       : 'total <b>'+v.total+'</b>'+(v.soft?' (soft)':'')+(bust?' · bust':'');
     if (S.phase==="done") totalTxt += ' · '+outcomeText(h.result);
     var cls = 'bt-total mono'+(bust?' bust':(bj?' bj':''));
+
+    /* win-odds line (player turn only, live hand) */
+    var oddsHTML = "";
+    if (S.phase==="player" && !h.done){
+      if (!h.odds) h.odds = estimateOdds(h.cards, S.dealer[0]);
+      oddsHTML = '<div class="bt-odds mono"><b>'+h.odds.win+'%</b> win · '+h.odds.push+'% push · '+h.odds.lose+'% lose</div>';
+    }
+
     return '<div class="bt-zone"'+style+'><div class="bt-zlabel">'+label+'</div>'
          + '<div class="bt-cards">'+cards+'</div>'
-         + '<div class="'+cls+'">'+totalTxt+'</div></div>';
+         + '<div class="'+cls+'">'+totalTxt+'</div>'+oddsHTML+'</div>';
   }).join("");
 
   var controls;
@@ -376,7 +431,7 @@ function render(){
     +   '<div class="bt-div"></div>'
     +   controls
     + '</div>'
-    + '<div class="bt-foot mono">6 DECKS · DEALER STANDS SOFT 17 · DAS · SPLIT ONCE</div>'
+    + '<div class="bt-foot mono">6 DECKS · DEALER STANDS SOFT 17 · DAS · SPLIT ONCE<br>WIN ODDS SIMULATED · ASSUME BASIC STRATEGY</div>'
     + '</div></div>';
 }
 
