@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BASIC — Blackjack Strategy Trainer</title>
+<style>
+html,body,#app{height:100%;margin:0;background:#0E1C19;}
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+* { box-sizing: border-box; }
+.bt-root {
+  --pine:#0E1C19; --felt:#173A31; --felt2:#1E4A3E; --ivory:#F6F2E7;
+  --ink:#161616; --red:#C4362F; --mint:#59E29A; --coral:#FF7B72;
+  --gold:#E4B45A;
+  min-height:100%; width:100%;
+  background:radial-gradient(120% 90% at 50% -10%, #16302A 0%, var(--pine) 60%);
+  color:#DCEAE3; font-family:'Space Grotesk',system-ui,sans-serif;
+  padding:24px 16px 40px; display:flex; justify-content:center;
+}
+.bt-wrap { width:100%; max-width:680px; }
+.mono { font-family:'IBM Plex Mono',ui-monospace,monospace; }
+
+.bt-top { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:22px; }
+.bt-title { font-size:30px; font-weight:700; letter-spacing:.24em; line-height:1; }
+.bt-sub { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:#7FA093; margin-top:7px; }
+
+.bt-meter { text-align:right; min-width:150px; }
+.bt-pct { font-size:34px; font-weight:600; letter-spacing:-.01em; color:var(--gold); line-height:1; }
+.bt-bar { height:5px; border-radius:99px; background:#0c1613; margin:8px 0 5px; overflow:hidden; }
+.bt-bar > i { display:block; height:100%; background:linear-gradient(90deg,var(--coral),var(--gold),var(--mint)); transition:width .5s ease; }
+.bt-count { font-size:11px; letter-spacing:.12em; color:#7FA093; }
+
+.bt-table {
+  background:linear-gradient(180deg,var(--felt2),var(--felt));
+  border:1px solid #0c211b; border-radius:22px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 22px 50px -24px #000;
+  padding:22px 18px; position:relative;
+}
+.bt-zone { margin:6px 0 4px; }
+.bt-zlabel { font-size:11px; letter-spacing:.28em; text-transform:uppercase; color:#8FB0A2; margin-bottom:10px; }
+.bt-cards { display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:96px; }
+
+.card {
+  width:64px; height:92px; border-radius:9px; background:var(--ivory);
+  color:var(--ink); position:relative; flex:0 0 auto;
+  box-shadow:0 6px 14px -6px rgba(0,0,0,.6);
+  animation:dealin .28s cubic-bezier(.2,.8,.3,1) both;
+}
+.card.red { color:var(--red); }
+.card .r { position:absolute; top:6px; left:7px; font-weight:700; font-size:16px; line-height:1; }
+.card .s { position:absolute; font-size:15px; top:21px; left:8px; }
+.card .big { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:30px; }
+.card.back { background:repeating-linear-gradient(45deg,#20514a,#20514a 6px,#1a453f 6px,#1a453f 12px); border:2px solid #2c655b; }
+@keyframes dealin { from { opacity:0; transform:translateY(-10px) rotate(-3deg); } to { opacity:1; transform:none; } }
+
+.bt-total { display:inline-flex; align-items:center; gap:8px; margin-top:12px; padding:4px 12px;
+  border-radius:99px; background:#0e2620; font-size:13px; letter-spacing:.08em; color:#CFE6DC; }
+.bt-total b { font-weight:600; font-size:15px; }
+.bt-total.bust { color:var(--coral); } .bt-total.bj { color:var(--gold); }
+
+.bt-div { height:1px; background:#0e241e; margin:18px 0; }
+
+.bt-actions { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; }
+.bt-btn { appearance:none; border:1px solid #2b5f52; background:#123029; color:#E6F2EC;
+  font-family:inherit; font-size:13px; font-weight:500; letter-spacing:.14em; text-transform:uppercase;
+  padding:14px 6px; border-radius:11px; cursor:pointer; transition:transform .08s, background .15s, opacity .15s; }
+.bt-btn:hover:not(:disabled) { background:#184035; transform:translateY(-1px); }
+.bt-btn:active:not(:disabled) { transform:translateY(0); }
+.bt-btn:disabled { opacity:.32; cursor:not-allowed; }
+.bt-btn.primary { grid-column:1 / -1; background:var(--gold); color:#25200c; border-color:var(--gold); font-weight:700; }
+.bt-btn.primary:hover { background:#efc35f; }
+
+.bt-utility { display:flex; gap:10px; margin-top:12px; }
+.bt-link { background:none; border:none; color:#8FB0A2; font-family:inherit; font-size:12px;
+  letter-spacing:.1em; cursor:pointer; padding:6px 2px; text-decoration:underline; text-underline-offset:3px; }
+.bt-link:hover { color:#CFE6DC; }
+
+.bt-hint { margin-top:12px; padding:11px 14px; border-radius:11px; background:#0e2620;
+  border:1px dashed #2b5f52; font-size:13px; letter-spacing:.03em; color:#BFE0D2; }
+.bt-hint b { color:var(--gold); font-weight:600; letter-spacing:.06em; }
+
+.verdict { margin-top:14px; border-radius:14px; padding:14px 16px; display:flex; gap:13px; align-items:flex-start;
+  animation:vin .3s ease both; }
+@keyframes vin { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+.verdict.good { background:rgba(89,226,154,.10); border:1px solid rgba(89,226,154,.35); }
+.verdict.bad  { background:rgba(255,123,114,.10); border:1px solid rgba(255,123,114,.35); }
+.verdict .mark { font-size:22px; line-height:1; margin-top:1px; }
+.verdict.good .mark { color:var(--mint); } .verdict.bad .mark { color:var(--coral); }
+.verdict .head { font-weight:600; font-size:14px; letter-spacing:.04em; }
+.verdict .body { font-size:13px; color:#C6DED4; margin-top:3px; line-height:1.5; }
+.verdict .body em { font-style:normal; color:var(--gold); font-weight:600; }
+
+.bt-outcome { margin-top:14px; text-align:center; font-size:14px; letter-spacing:.06em; }
+.bt-outcome .w { color:var(--mint); } .bt-outcome .l { color:var(--coral); } .bt-outcome .p { color:#CFE6DC; }
+.bt-foot { margin-top:18px; text-align:center; font-size:11px; letter-spacing:.14em; color:#5d7d71; }
+
+@media (max-width:480px){ .card{width:54px;height:78px;} .card .big{font-size:26px;} .bt-title{font-size:24px;} }
+@media (prefers-reduced-motion: reduce){ .card,.verdict{animation:none;} }
+
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const SUITS = ["\u2660", "\u2665", "\u2666", "\u2663"]; // ♠ ♥ ♦ ♣
+const RED_SUITS = new Set(["\u2665", "\u2666"]);
+const RANKS = [
+  ["A", 11], ["2", 2], ["3", 3], ["4", 4], ["5", 5], ["6", 6],
+  ["7", 7], ["8", 8], ["9", 9], ["10", 10], ["J", 10], ["Q", 10], ["K", 10],
+];
+
+let CARD_ID = 0;
+function buildShoe(decks = 6) {
+  const shoe = [];
+  for (let d = 0; d < decks; d++)
+    for (const s of SUITS)
+      for (const [rank, value] of RANKS)
+        shoe.push({ rank, value, suit: s, id: CARD_ID++ });
+  // Fisher–Yates
+  for (let i = shoe.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shoe[i], shoe[j]] = [shoe[j], shoe[i]];
+  }
+  return shoe;
+}
+
+function handValue(cards) {
+  let total = 0, aces = 0;
+  for (const c of cards) { total += c.value; if (c.rank === "A") aces++; }
+  while (total > 21 && aces > 0) { total -= 10; aces--; }
+  return { total, soft: aces > 0 && total <= 21 };
+}
+const isNatural = (h) => h.cards.length === 2 && !h.fromSplit && handValue(h.cards).total === 21;
+
+/* ----------------------------- STRATEGY ----------------------------- */
+/* up = dealer upcard value, 11 === Ace                                 */
+function hardMove(total, up, canDouble) {
+  if (total >= 17) return "stand";
+  if (total >= 13) return up <= 6 ? "stand" : "hit";
+  if (total === 12) return up >= 4 && up <= 6 ? "stand" : "hit";
+  if (total === 11) return canDouble && up <= 10 ? "double" : "hit";
+  if (total === 10) return canDouble && up <= 9 ? "double" : "hit";
+  if (total === 9) return canDouble && up >= 3 && up <= 6 ? "double" : "hit";
+  return "hit"; // 5–8
+}
+function softMove(total, up, canDouble) {
+  if (total >= 19) return "stand";               // soft 19–21
+  if (total === 18) {                             // A,7
+    if (up >= 3 && up <= 6) return canDouble ? "double" : "stand";
+    if (up === 2 || up === 7 || up === 8) return "stand";
+    return "hit";                                 // 9,10,A
+  }
+  if (total === 17) return canDouble && up >= 3 && up <= 6 ? "double" : "hit";
+  if (total === 16 || total === 15) return canDouble && up >= 4 && up <= 6 ? "double" : "hit";
+  if (total === 14 || total === 13) return canDouble && up >= 5 && up <= 6 ? "double" : "hit";
+  return "hit";
+}
+function pairShouldSplit(pv, up) {
+  switch (pv) {
+    case 11: return true;                          // A,A
+    case 9:  return ![7, 10, 11].includes(up);     // not 7/10/A
+    case 8:  return true;
+    case 7:  return up <= 7;
+    case 6:  return up <= 6;
+    case 4:  return up === 5 || up === 6;
+    case 3:  return up <= 7;
+    case 2:  return up <= 7;
+    default: return false;                         // 5,5 and 10,10 never split
+  }
+}
+function optimalMove(cards, up, { canDouble, canSplit }) {
+  if (canSplit && cards.length === 2 && cards[0].value === cards[1].value) {
+    if (pairShouldSplit(cards[0].value, up)) return "split";
+  }
+  const { total, soft } = handValue(cards);
+  return soft ? softMove(total, up, canDouble) : hardMove(total, up, canDouble);
+}
+
+const MOVE_LABEL = { hit: "Hit", stand: "Stand", double: "Double", split: "Split" };
+
+function reasonFor(cards, up, best) {
+  const { total, soft } = handValue(cards);
+  const upTxt = up === 11 ? "an Ace" : up >= 10 ? "a 10" : `a ${up}`;
+  if (best === "split") {
+    const pv = cards[0].value;
+    if (pv === 11) return "Always split Aces — two fresh chances at 21.";
+    if (pv === 8) return "Always split 8s — 16 is the worst hand; two 8s are better.";
+    return `Split this pair against ${upTxt}.`;
+  }
+  if (best === "double") return `Double — a strong start against ${upTxt}, so put more out.`;
+  if (best === "stand") {
+    if (!soft && total >= 12 && total <= 16)
+      return `Stand on a stiff ${total}: only hit these against a 7 or higher.`;
+    return "Stand — hitting risks more than it gains here.";
+  }
+  // hit
+  if (!soft && total >= 12 && total <= 16)
+    return `Hit: ${upTxt} is strong, so a stiff ${total} has to improve.`;
+  return "Hit — the hand is too low to stand.";
+}
+
+/* ---- app state ---- */
+var S = { shoe: buildShoe(6), dealer: [], hands: [], active: 0,
+          phase: "idle", verdict: null, hint: null,
+          stats: { correct:0, total:0, hands:0, w:0, l:0, p:0 } };
+
+function upValue(){ return S.dealer[0] ? S.dealer[0].value : 0; }
+function canDouble(){ var h=S.hands[S.active]; return !!h && h.cards.length===2 && !(h.fromSplit && h.cards[0].rank==="A"); }
+function canSplit(){ var h=S.hands[S.active]; return !!h && h.cards.length===2 && h.cards[0].value===h.cards[1].value && S.hands.length<2 && !h.fromSplit; }
+
+function deal(){
+  if (S.shoe.length < 25) S.shoe = buildShoe(6);
+  var p1=S.shoe.pop(), d1=S.shoe.pop(), p2=S.shoe.pop(), d2=S.shoe.pop();
+  S.dealer=[d1,d2];
+  S.hands=[{cards:[p1,p2],done:false,doubled:false,fromSplit:false,result:null}];
+  S.active=0; S.verdict=null; S.hint=null;
+  var pNat = handValue([p1,p2]).total===21;
+  var dNat = handValue(S.dealer).total===21;
+  if (pNat || dNat) { resolveRound(S.hands); }
+  else { S.phase="player"; render(); }
+}
+
+function resolveRound(finalHands){
+  var d = S.dealer.slice();
+  var dNat = d.length===2 && handValue(d).total===21;
+  var anyLive = finalHands.some(function(h){ return handValue(h.cards).total<=21; });
+  if (!dNat && anyLive){ while(handValue(d).total < 17) d.push(S.shoe.pop()); }
+  var dv = handValue(d).total, dBust = dv>21, w=0,l=0,p=0;
+  finalHands.forEach(function(h){
+    var pv = handValue(h.cards).total, r;
+    if (pv>21) r="loss";
+    else if (dNat && isNatural(h)) r="push";
+    else if (dNat) r="loss";
+    else if (isNatural(h)) r="blackjack";
+    else if (dBust || pv>dv) r="win";
+    else if (pv<dv) r="loss";
+    else r="push";
+    if (r==="loss") l++; else if (r==="push") p++; else w++;
+    h.result=r;
+  });
+  S.dealer=d;
+  S.stats.hands+=finalHands.length; S.stats.w+=w; S.stats.l+=l; S.stats.p+=p;
+  S.phase="done"; render();
+}
+
+function advance(){
+  var idx = S.hands.findIndex(function(h){ return !h.done; });
+  if (idx===-1) resolveRound(S.hands);
+  else { S.active=idx; S.phase="player"; render(); }
+}
+
+function act(action){
+  if (S.phase!=="player") return;
+  var h = S.hands[S.active];
+  S.hint=null;
+  var best = optimalMove(h.cards, upValue(), {canDouble:canDouble(), canSplit:canSplit()});
+  var correct = action===best;
+  S.verdict = {correct:correct, you:action, best:best, reason:reasonFor(h.cards, upValue(), best)};
+  S.stats.total++; if (correct) S.stats.correct++;
+
+  if (action==="split"){
+    var c1=h.cards[0], c2=h.cards[1], aces=c1.rank==="A";
+    var nh1={cards:[c1,S.shoe.pop()],done:aces,doubled:false,fromSplit:true,result:null};
+    var nh2={cards:[c2,S.shoe.pop()],done:aces,doubled:false,fromSplit:true,result:null};
+    S.hands = S.hands.slice(0,S.active).concat([nh1,nh2], S.hands.slice(S.active+1));
+    if (aces) advance(); else render();
+    return;
+  }
+  if (action==="hit"){
+    h.cards.push(S.shoe.pop());
+    if (handValue(h.cards).total>21) h.done=true;
+    if (h.done) advance(); else render();
+    return;
+  }
+  if (action==="double"){
+    h.cards.push(S.shoe.pop()); h.doubled=true; h.done=true; advance(); return;
+  }
+  h.done=true; advance(); /* stand */
+}
+
+function showHint(){
+  if (S.phase!=="player" || !S.hands[S.active]) return;
+  S.hint = optimalMove(S.hands[S.active].cards, upValue(), {canDouble:canDouble(), canSplit:canSplit()});
+  render();
+}
+function resetStats(){ S.stats={correct:0,total:0,hands:0,w:0,l:0,p:0}; render(); }
+
+/* ---- rendering ---- */
+function cardHTML(c, hidden){
+  if (hidden) return '<div class="card back"></div>';
+  var red = RED_SUITS.has(c.suit) ? " red" : "";
+  return '<div class="card'+red+'"><span class="r">'+c.rank+'</span><span class="s">'+c.suit+'</span><span class="big">'+c.suit+'</span></div>';
+}
+function outcomeText(r){
+  if (r==="blackjack") return '<span class="w">Blackjack!</span>';
+  if (r==="win") return '<span class="w">Win</span>';
+  if (r==="loss") return '<span class="l">Loss</span>';
+  return '<span class="p">Push</span>';
+}
+
+function render(){
+  var pct = S.stats.total ? Math.round(S.stats.correct/S.stats.total*100) : 0;
+
+  var dealerCards = S.dealer.map(function(c,i){ return cardHTML(c, i===1 && S.phase==="player"); }).join("");
+  var dealerTotal = "";
+  if (S.dealer.length){
+    if (S.phase==="player"){
+      dealerTotal = '<div class="bt-total mono">shows <b>'+(S.dealer[0].rank==="A"?"Ace":S.dealer[0].value)+'</b></div>';
+    } else {
+      var dt = handValue(S.dealer).total;
+      dealerTotal = '<div class="bt-total mono'+(dt>21?' bust':'')+'">total <b>'+dt+'</b>'+(dt>21?' · bust':'')+'</div>';
+    }
+  }
+
+  var handsHTML = S.hands.map(function(h,hi){
+    var v = handValue(h.cards), bust=v.total>21, bj=isNatural(h);
+    var activeNow = S.phase==="player" && hi===S.active && S.hands.length>1;
+    var style = activeNow ? ' style="outline:1px solid rgba(228,180,90,.4);border-radius:12px;padding:8px;margin:0 -8px;"' : '';
+    var label = (S.hands.length>1 ? ('Your hand '+(hi+1)+(activeNow?' · playing':'')) : 'You') + (h.doubled?' · doubled':'');
+    var cards = h.cards.map(function(c){ return cardHTML(c,false); }).join("");
+    var totalTxt = bj ? 'blackjack <b>21</b>'
+      : 'total <b>'+v.total+'</b>'+(v.soft?' (soft)':'')+(bust?' · bust':'');
+    if (S.phase==="done") totalTxt += ' · '+outcomeText(h.result);
+    var cls = 'bt-total mono'+(bust?' bust':(bj?' bj':''));
+    return '<div class="bt-zone"'+style+'><div class="bt-zlabel">'+label+'</div>'
+         + '<div class="bt-cards">'+cards+'</div>'
+         + '<div class="'+cls+'">'+totalTxt+'</div></div>';
+  }).join("");
+
+  var controls;
+  if (S.phase==="player"){
+    var actions = '<div class="bt-actions">'
+      + '<button class="bt-btn" data-do="hit">Hit</button>'
+      + '<button class="bt-btn" data-do="stand">Stand</button>'
+      + '<button class="bt-btn" data-do="double"'+(canDouble()?'':' disabled')+'>Double</button>'
+      + '<button class="bt-btn" data-do="split"'+(canSplit()?'':' disabled')+'>Split</button>'
+      + '</div>';
+    var utility = '<div class="bt-utility">'
+      + '<button class="bt-link" data-do="hint">'+"What's the optimal move?"+'</button>'
+      + '<button class="bt-link" data-do="reset">Reset stats</button></div>';
+    var hint = S.hint ? '<div class="bt-hint">Optimal play here is <b>'+MOVE_LABEL[S.hint]+'</b>. '
+      + reasonFor(S.hands[S.active].cards, upValue(), S.hint)+'</div>' : '';
+    var verdict = "";
+    if (S.verdict){
+      var vv = S.verdict;
+      var head = vv.correct ? ('Correct — '+MOVE_LABEL[vv.you]+' is the play.')
+        : ('You chose '+MOVE_LABEL[vv.you]+'. Optimal: '+MOVE_LABEL[vv.best]+'.');
+      verdict = '<div class="verdict '+(vv.correct?'good':'bad')+'">'
+        + '<div class="mark">'+(vv.correct?"\u2713":"\u2715")+'</div>'
+        + '<div><div class="head">'+head+'</div><div class="body">'+vv.reason+'</div></div></div>';
+    }
+    controls = actions+utility+hint+verdict;
+  } else {
+    var outcome = "";
+    if (S.phase==="done"){
+      outcome = S.hands.length===1
+        ? '<div class="bt-outcome mono">Result: '+outcomeText(S.hands[0].result)+'</div>'
+        : '<div class="bt-outcome mono">Session: <span class="w">'+S.stats.w+'W</span> · <span class="l">'+S.stats.l+'L</span> · <span class="p">'+S.stats.p+'P</span></div>';
+    }
+    controls = '<button class="bt-btn primary" data-do="deal">Deal next hand</button>'+outcome;
+  }
+
+  root.innerHTML =
+    '<div class="bt-root"><div class="bt-wrap">'
+    + '<div class="bt-top"><div><div class="bt-title">BASIC</div>'
+    +   '<div class="bt-sub">blackjack strategy trainer</div></div>'
+    +   '<div class="bt-meter"><div class="bt-pct mono">'+pct+'%</div>'
+    +   '<div class="bt-bar"><i style="width:'+pct+'%"></i></div>'
+    +   '<div class="bt-count mono">'+S.stats.correct+'/'+S.stats.total+' decisions correct</div></div></div>'
+    + '<div class="bt-table">'
+    +   '<div class="bt-zone"><div class="bt-zlabel">Dealer</div>'
+    +     '<div class="bt-cards">'+dealerCards+'</div>'+dealerTotal+'</div>'
+    +   '<div class="bt-div"></div>'
+    +   handsHTML
+    +   '<div class="bt-div"></div>'
+    +   controls
+    + '</div>'
+    + '<div class="bt-foot mono">6 DECKS · DEALER STANDS SOFT 17 · DAS · SPLIT ONCE</div>'
+    + '</div></div>';
+}
+
+var root = document.getElementById("app");
+root.addEventListener("click", function(e){
+  var b = e.target.closest("[data-do]");
+  if (!b || b.disabled) return;
+  var d = b.getAttribute("data-do");
+  if (d==="deal") deal();
+  else if (d==="hint") showHint();
+  else if (d==="reset") resetStats();
+  else act(d);
+});
+deal();
+
+</script>
+</body>
+</html>
