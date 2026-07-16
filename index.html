@@ -100,7 +100,14 @@ html,body,#app{height:100%;margin:0;background:#0E1C19;}
 
 .bt-odds { margin-top:8px; font-size:12px; letter-spacing:.05em; color:#8FB0A2; }
 .bt-odds b { color:var(--gold); font-weight:600; font-size:13px; }
-.bt-odds .spin { color:#6d8f81; font-style:italic; }
+.bt-tabs { display:inline-flex; gap:4px; background:#0e2620; padding:4px; border-radius:11px; }
+.bt-tab { border:none; background:none; color:#8FB0A2; font-family:inherit; font-size:12px; font-weight:500;
+  letter-spacing:.16em; text-transform:uppercase; padding:8px 18px; border-radius:8px; cursor:pointer; transition:background .15s,color .15s; }
+.bt-tab.on { background:#1E4A3E; color:#F6F2E7; }
+.bt-tab:hover:not(.on){ color:#CFE6DC; }
+.bt-streak { font-size:12px; letter-spacing:.1em; color:#8FB0A2; margin-top:5px; }
+.bt-q { text-align:center; font-size:15px; letter-spacing:.05em; color:#CFE6DC; margin:4px 0 16px; }
+.bt-drillnote { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:#6d8f81; text-align:center; margin-top:12px; }
 
 </style>
 </head>
@@ -204,6 +211,22 @@ function reasonFor(cards, up, best) {
   return "Hit — the hand is too low to stand.";
 }
 
+/* ---- persistence (browser localStorage) ---- */
+var LS_KEY = "basic_bj_v1";
+function save(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify({
+    stats:S.stats, drillStats:S.drillStats, drillMiss:S.drillMiss })); } catch(e){}
+}
+function load(){
+  try {
+    var raw = localStorage.getItem(LS_KEY); if(!raw) return;
+    var o = JSON.parse(raw);
+    if (o.stats) S.stats = o.stats;
+    if (o.drillStats) S.drillStats = o.drillStats;
+    if (o.drillMiss) S.drillMiss = o.drillMiss;
+  } catch(e){}
+}
+
 /* ---- win-odds estimator: Monte-Carlo simulation ---- */
 var ODDS_TRIALS = 15000;
 function reducedPool(playerCards, upCard){
@@ -227,7 +250,7 @@ function estimateOdds(playerCards, upCard, trials){
       var mv = optimalMove(ph, upCard.value, {canDouble: ph.length===2, canSplit:false});
       if (mv==="stand") break;
       if (mv==="double"){ ph.push(draw()); break; }
-      ph.push(draw());                       /* hit */
+      ph.push(draw());
       if (handValue(ph).total > 21) break;
     }
     var dh = [upCard, draw()];
@@ -246,15 +269,42 @@ function estimateOdds(playerCards, upCard, trials){
   return { win:w, push:p, lose:100-w-p };
 }
 
+/* ---- drill scenarios: curated tricky spots ----
+   [ [player ranks], dealer upcard rank, base weight ]  (weight 3 = most-missed)  */
+var DRILL_POOL = [
+  /* soft 18 -- the most-missed row */
+  [["A","7"],"2",2],[["A","7"],"3",3],[["A","7"],"4",3],[["A","7"],"5",3],[["A","7"],"6",3],
+  [["A","7"],"7",2],[["A","7"],"8",2],[["A","7"],"9",3],[["A","7"],"10",3],[["A","7"],"A",3],
+  /* hard 12 line */
+  [["10","2"],"2",3],[["10","2"],"3",3],[["10","2"],"4",2],[["10","2"],"5",1],[["10","2"],"6",1],
+  /* stiff hands vs high cards */
+  [["10","6"],"10",2],[["10","6"],"9",2],[["10","6"],"7",1],[["10","5"],"10",2],[["10","3"],"2",1],
+  /* doubling decisions */
+  [["5","4"],"2",2],[["5","4"],"3",2],[["5","4"],"7",1],[["7","4"],"A",2],[["7","3"],"A",2],[["7","3"],"10",2],[["6","5"],"6",1],
+  /* soft low doubles */
+  [["A","2"],"5",2],[["A","2"],"4",2],[["A","3"],"4",2],[["A","4"],"4",2],[["A","5"],"4",2],
+  [["A","6"],"2",2],[["A","6"],"3",2],[["A","8"],"6",1],
+  /* pairs */
+  [["9","9"],"7",3],[["9","9"],"9",2],[["9","9"],"10",2],[["9","9"],"A",2],
+  [["2","2"],"7",2],[["3","3"],"7",2],[["4","4"],"5",2],[["4","4"],"7",2],
+  [["6","6"],"2",2],[["6","6"],"7",2],[["7","7"],"8",2],[["8","8"],"10",2],
+  [["A","A"],"9",1],[["10","10"],"6",2],[["5","5"],"6",2],
+  /* a few easier ones for variety */
+  [["10","7"],"10",1],[["6","5"],"5",1],[["5","3"],"6",1]
+];
+
 /* ---- app state ---- */
 var S = { shoe: buildShoe(6), dealer: [], hands: [], active: 0,
           phase: "idle", verdict: null, hint: null,
-          stats: { correct:0, total:0, hands:0, w:0, l:0, p:0 } };
+          stats: { correct:0, total:0, hands:0, w:0, l:0, p:0 },
+          mode: "play",
+          drill: null, drillStats: {correct:0, total:0}, drillMiss: {}, drillStreak: 0, drillLastId: null };
 
 function upValue(){ return S.dealer[0] ? S.dealer[0].value : 0; }
 function canDouble(){ var h=S.hands[S.active]; return !!h && h.cards.length===2 && !(h.fromSplit && h.cards[0].rank==="A"); }
 function canSplit(){ var h=S.hands[S.active]; return !!h && h.cards.length===2 && h.cards[0].value===h.cards[1].value && S.hands.length<2 && !h.fromSplit; }
 
+/* ---- PLAY MODE ---- */
 function deal(){
   if (S.shoe.length < 25) S.shoe = buildShoe(6);
   var p1=S.shoe.pop(), d1=S.shoe.pop(), p2=S.shoe.pop(), d2=S.shoe.pop();
@@ -266,7 +316,6 @@ function deal(){
   if (pNat || dNat) { resolveRound(S.hands); }
   else { S.phase="player"; render(); }
 }
-
 function resolveRound(finalHands){
   var d = S.dealer.slice();
   var dNat = d.length===2 && handValue(d).total===21;
@@ -289,13 +338,11 @@ function resolveRound(finalHands){
   S.stats.hands+=finalHands.length; S.stats.w+=w; S.stats.l+=l; S.stats.p+=p;
   S.phase="done"; render();
 }
-
 function advance(){
   var idx = S.hands.findIndex(function(h){ return !h.done; });
   if (idx===-1) resolveRound(S.hands);
   else { S.active=idx; S.phase="player"; render(); }
 }
-
 function act(action){
   if (S.phase!=="player") return;
   var h = S.hands[S.active];
@@ -304,7 +351,6 @@ function act(action){
   var correct = action===best;
   S.verdict = {correct:correct, you:action, best:best, reason:reasonFor(h.cards, upValue(), best)};
   S.stats.total++; if (correct) S.stats.correct++;
-
   if (action==="split"){
     var c1=h.cards[0], c2=h.cards[1], aces=c1.rank==="A";
     var nh1={cards:[c1,S.shoe.pop()],done:aces,doubled:false,fromSplit:true,result:null,odds:null};
@@ -314,24 +360,61 @@ function act(action){
     return;
   }
   if (action==="hit"){
-    h.cards.push(S.shoe.pop());
-    h.odds = null;                       /* hand changed -> recompute odds */
+    h.cards.push(S.shoe.pop()); h.odds=null;
     if (handValue(h.cards).total>21) h.done=true;
     if (h.done) advance(); else render();
     return;
   }
-  if (action==="double"){
-    h.cards.push(S.shoe.pop()); h.doubled=true; h.done=true; advance(); return;
-  }
-  h.done=true; advance(); /* stand */
+  if (action==="double"){ h.cards.push(S.shoe.pop()); h.doubled=true; h.done=true; advance(); return; }
+  h.done=true; advance();
 }
-
 function showHint(){
   if (S.phase!=="player" || !S.hands[S.active]) return;
   S.hint = optimalMove(S.hands[S.active].cards, upValue(), {canDouble:canDouble(), canSplit:canSplit()});
   render();
 }
 function resetStats(){ S.stats={correct:0,total:0,hands:0,w:0,l:0,p:0}; render(); }
+
+/* ---- DRILL MODE ---- */
+function mk(rank){
+  var v = rank==="A" ? 11 : ((rank==="J"||rank==="Q"||rank==="K") ? 10 : parseInt(rank,10));
+  return { rank:rank, value:v, suit:"\u2660", id:CARD_ID++ };
+}
+function pickScenario(){
+  var weighted = DRILL_POOL.map(function(s){
+    var id = s[0].join(",") + " vs " + s[1];
+    var miss = S.drillMiss[id] || 0;
+    return { s:s, id:id, w: s[2] + 3*Math.min(miss,4) };
+  });
+  var total = 0; weighted.forEach(function(x){ total += x.w; });
+  var chosen = null, tries = 0;
+  do {
+    var r = Math.random()*total, acc = 0;
+    for (var i=0;i<weighted.length;i++){ acc += weighted[i].w; if (r <= acc){ chosen = weighted[i]; break; } }
+    tries++;
+  } while (chosen && chosen.id === S.drillLastId && weighted.length > 1 && tries < 5);
+  return chosen || weighted[0];
+}
+function newDrill(){
+  var c = pickScenario();
+  S.drillLastId = c.id;
+  var cards = c.s[0].map(function(rk,i){ var m = mk(rk); m.suit = (i===0 ? "\u2660" : "\u2665"); return m; });
+  var up = mk(c.s[1]); up.suit = "\u2663";
+  var isPair = cards.length===2 && cards[0].value===cards[1].value;
+  var best = optimalMove(cards, up.value, {canDouble:true, canSplit:isPair});
+  S.drill = { cards:cards, up:up, id:c.id, isPair:isPair, best:best, answered:null, correct:null };
+  render();
+}
+function drillAnswer(move){
+  if (!S.drill || S.drill.answered) return;
+  var d = S.drill;
+  d.answered = move; d.correct = (move === d.best);
+  S.drillStats.total++;
+  if (d.correct){ S.drillStats.correct++; S.drillStreak++; }
+  else { S.drillStreak = 0; S.drillMiss[d.id] = (S.drillMiss[d.id]||0) + 1; }
+  save(); render();
+}
+function resetDrill(){ S.drillStats={correct:0,total:0}; S.drillMiss={}; S.drillStreak=0; save(); render(); }
 
 /* ---- rendering ---- */
 function cardHTML(c, hidden){
@@ -346,9 +429,7 @@ function outcomeText(r){
   return '<span class="p">Push</span>';
 }
 
-function render(){
-  var pct = S.stats.total ? Math.round(S.stats.correct/S.stats.total*100) : 0;
-
+function renderPlay(){
   var dealerCards = S.dealer.map(function(c,i){ return cardHTML(c, i===1 && S.phase==="player"); }).join("");
   var dealerTotal = "";
   if (S.dealer.length){
@@ -359,51 +440,36 @@ function render(){
       dealerTotal = '<div class="bt-total mono'+(dt>21?' bust':'')+'">total <b>'+dt+'</b>'+(dt>21?' · bust':'')+'</div>';
     }
   }
-
   var handsHTML = S.hands.map(function(h,hi){
     var v = handValue(h.cards), bust=v.total>21, bj=isNatural(h);
     var activeNow = S.phase==="player" && hi===S.active && S.hands.length>1;
     var style = activeNow ? ' style="outline:1px solid rgba(228,180,90,.4);border-radius:12px;padding:8px;margin:0 -8px;"' : '';
     var label = (S.hands.length>1 ? ('Your hand '+(hi+1)+(activeNow?' · playing':'')) : 'You') + (h.doubled?' · doubled':'');
     var cards = h.cards.map(function(c){ return cardHTML(c,false); }).join("");
-    var totalTxt = bj ? 'blackjack <b>21</b>'
-      : 'total <b>'+v.total+'</b>'+(v.soft?' (soft)':'')+(bust?' · bust':'');
+    var totalTxt = bj ? 'blackjack <b>21</b>' : 'total <b>'+v.total+'</b>'+(v.soft?' (soft)':'')+(bust?' · bust':'');
     if (S.phase==="done") totalTxt += ' · '+outcomeText(h.result);
     var cls = 'bt-total mono'+(bust?' bust':(bj?' bj':''));
-
-    /* win-odds line (player turn only, live hand) */
     var oddsHTML = "";
     if (S.phase==="player" && !h.done){
       if (!h.odds) h.odds = estimateOdds(h.cards, S.dealer[0]);
       oddsHTML = '<div class="bt-odds mono"><b>'+h.odds.win+'%</b> win · '+h.odds.push+'% push · '+h.odds.lose+'% lose</div>';
     }
-
-    return '<div class="bt-zone"'+style+'><div class="bt-zlabel">'+label+'</div>'
-         + '<div class="bt-cards">'+cards+'</div>'
-         + '<div class="'+cls+'">'+totalTxt+'</div>'+oddsHTML+'</div>';
+    return '<div class="bt-zone"'+style+'><div class="bt-zlabel">'+label+'</div><div class="bt-cards">'+cards+'</div><div class="'+cls+'">'+totalTxt+'</div>'+oddsHTML+'</div>';
   }).join("");
-
   var controls;
   if (S.phase==="player"){
     var actions = '<div class="bt-actions">'
-      + '<button class="bt-btn" data-do="hit">Hit</button>'
-      + '<button class="bt-btn" data-do="stand">Stand</button>'
+      + '<button class="bt-btn" data-do="hit">Hit</button><button class="bt-btn" data-do="stand">Stand</button>'
       + '<button class="bt-btn" data-do="double"'+(canDouble()?'':' disabled')+'>Double</button>'
-      + '<button class="bt-btn" data-do="split"'+(canSplit()?'':' disabled')+'>Split</button>'
-      + '</div>';
-    var utility = '<div class="bt-utility">'
-      + '<button class="bt-link" data-do="hint">'+"What's the optimal move?"+'</button>'
+      + '<button class="bt-btn" data-do="split"'+(canSplit()?'':' disabled')+'>Split</button></div>';
+    var utility = '<div class="bt-utility"><button class="bt-link" data-do="hint">'+"What's the optimal move?"+'</button>'
       + '<button class="bt-link" data-do="reset">Reset stats</button></div>';
-    var hint = S.hint ? '<div class="bt-hint">Optimal play here is <b>'+MOVE_LABEL[S.hint]+'</b>. '
-      + reasonFor(S.hands[S.active].cards, upValue(), S.hint)+'</div>' : '';
+    var hint = S.hint ? '<div class="bt-hint">Optimal play here is <b>'+MOVE_LABEL[S.hint]+'</b>. '+reasonFor(S.hands[S.active].cards, upValue(), S.hint)+'</div>' : '';
     var verdict = "";
     if (S.verdict){
       var vv = S.verdict;
-      var head = vv.correct ? ('Correct — '+MOVE_LABEL[vv.you]+' is the play.')
-        : ('You chose '+MOVE_LABEL[vv.you]+'. Optimal: '+MOVE_LABEL[vv.best]+'.');
-      verdict = '<div class="verdict '+(vv.correct?'good':'bad')+'">'
-        + '<div class="mark">'+(vv.correct?"\u2713":"\u2715")+'</div>'
-        + '<div><div class="head">'+head+'</div><div class="body">'+vv.reason+'</div></div></div>';
+      var head = vv.correct ? ('Correct — '+MOVE_LABEL[vv.you]+' is the play.') : ('You chose '+MOVE_LABEL[vv.you]+'. Optimal: '+MOVE_LABEL[vv.best]+'.');
+      verdict = '<div class="verdict '+(vv.correct?'good':'bad')+'"><div class="mark">'+(vv.correct?"\u2713":"\u2715")+'</div><div><div class="head">'+head+'</div><div class="body">'+vv.reason+'</div></div></div>';
     }
     controls = actions+utility+hint+verdict;
   } else {
@@ -415,24 +481,60 @@ function render(){
     }
     controls = '<button class="bt-btn primary" data-do="deal">Deal next hand</button>'+outcome;
   }
+  return '<div class="bt-table">'
+    + '<div class="bt-zone"><div class="bt-zlabel">Dealer</div><div class="bt-cards">'+dealerCards+'</div>'+dealerTotal+'</div>'
+    + '<div class="bt-div"></div>'+handsHTML+'<div class="bt-div"></div>'+controls+'</div>';
+}
 
-  root.innerHTML =
-    '<div class="bt-root"><div class="bt-wrap">'
-    + '<div class="bt-top"><div><div class="bt-title">BASIC</div>'
-    +   '<div class="bt-sub">blackjack strategy trainer</div></div>'
-    +   '<div class="bt-meter"><div class="bt-pct mono">'+pct+'%</div>'
-    +   '<div class="bt-bar"><i style="width:'+pct+'%"></i></div>'
-    +   '<div class="bt-count mono">'+S.stats.correct+'/'+S.stats.total+' decisions correct</div></div></div>'
-    + '<div class="bt-table">'
-    +   '<div class="bt-zone"><div class="bt-zlabel">Dealer</div>'
-    +     '<div class="bt-cards">'+dealerCards+'</div>'+dealerTotal+'</div>'
-    +   '<div class="bt-div"></div>'
-    +   handsHTML
-    +   '<div class="bt-div"></div>'
-    +   controls
-    + '</div>'
-    + '<div class="bt-foot mono">6 DECKS · DEALER STANDS SOFT 17 · DAS · SPLIT ONCE<br>WIN ODDS SIMULATED · ASSUME BASIC STRATEGY</div>'
+function renderDrill(){
+  if (!S.drill) return '<div class="bt-table"><div class="bt-q">Loading…</div></div>';
+  var d = S.drill;
+  var v = handValue(d.cards);
+  var totalLbl = 'total <b>'+v.total+'</b>'+(v.soft?' (soft)':'')+(d.isPair?' · pair':'');
+  var inner = '<div class="bt-zone"><div class="bt-zlabel">Dealer shows</div><div class="bt-cards">'+cardHTML(d.up,false)+'</div></div>'
+    + '<div class="bt-div"></div>'
+    + '<div class="bt-zone"><div class="bt-zlabel">You have</div><div class="bt-cards">'+d.cards.map(function(c){return cardHTML(c,false);}).join("")+'</div>'
+    + '<div class="bt-total mono">'+totalLbl+'</div></div>'
+    + '<div class="bt-div"></div>';
+  if (!d.answered){
+    inner += '<div class="bt-q">'+"What's the correct play?"+'</div>'
+      + '<div class="bt-actions">'
+      + '<button class="bt-btn" data-do="d-hit">Hit</button><button class="bt-btn" data-do="d-stand">Stand</button>'
+      + '<button class="bt-btn" data-do="d-double">Double</button>'
+      + '<button class="bt-btn" data-do="d-split"'+(d.isPair?'':' disabled')+'>Split</button></div>'
+      + '<div class="bt-drillnote">weighted toward the spots players miss most</div>'
+      + '<div class="bt-utility"><button class="bt-link" data-do="d-reset">Reset drill</button></div>';
+  } else {
+    var head = d.correct ? ('Correct — '+MOVE_LABEL[d.best]+' is the play.') : ('You chose '+MOVE_LABEL[d.answered]+'. Correct: '+MOVE_LABEL[d.best]+'.');
+    inner += '<div class="verdict '+(d.correct?'good':'bad')+'"><div class="mark">'+(d.correct?"\u2713":"\u2715")+'</div>'
+      + '<div><div class="head">'+head+'</div><div class="body">'+reasonFor(d.cards, d.up.value, d.best)+'</div></div></div>'
+      + '<button class="bt-btn primary" data-do="d-next">Next hand</button>'
+      + '<div class="bt-utility"><button class="bt-link" data-do="d-reset">Reset drill</button></div>';
+  }
+  return '<div class="bt-table">'+inner+'</div>';
+}
+
+function render(){
+  var isDrill = S.mode==="drill";
+  var pAcc = S.stats.total ? Math.round(S.stats.correct/S.stats.total*100) : 0;
+  var dAcc = S.drillStats.total ? Math.round(S.drillStats.correct/S.drillStats.total*100) : 0;
+  var pct = isDrill ? dAcc : pAcc;
+  var count = isDrill ? (S.drillStats.correct+'/'+S.drillStats.total+' drills correct')
+                      : (S.stats.correct+'/'+S.stats.total+' decisions correct');
+  var streak = isDrill ? '<div class="bt-streak mono">streak · '+S.drillStreak+'</div>' : '';
+  var tabs = '<div class="bt-tabs"><button class="bt-tab'+(!isDrill?' on':'')+'" data-do="mode-play">Play</button>'
+    + '<button class="bt-tab'+(isDrill?' on':'')+'" data-do="mode-drill">Drill</button></div>';
+  var header = '<div class="bt-top"><div><div class="bt-title">BASIC</div>'
+    + '<div class="bt-sub">blackjack strategy trainer</div>'
+    + '<div style="margin-top:14px">'+tabs+'</div></div>'
+    + '<div class="bt-meter"><div class="bt-pct mono">'+pct+'%</div>'
+    + '<div class="bt-bar"><i style="width:'+pct+'%"></i></div>'
+    + '<div class="bt-count mono">'+count+'</div>'+streak+'</div></div>';
+  var body = isDrill ? renderDrill() : renderPlay();
+  root.innerHTML = '<div class="bt-root"><div class="bt-wrap">'+header+body
+    + '<div class="bt-foot mono">6 DECKS · DEALER STANDS SOFT 17 · DAS · SPLIT ONCE<br>PROGRESS SAVED IN YOUR BROWSER</div>'
     + '</div></div>';
+  save();
 }
 
 var root = document.getElementById("app");
@@ -440,11 +542,18 @@ root.addEventListener("click", function(e){
   var b = e.target.closest("[data-do]");
   if (!b || b.disabled) return;
   var d = b.getAttribute("data-do");
-  if (d==="deal") deal();
-  else if (d==="hint") showHint();
-  else if (d==="reset") resetStats();
-  else act(d);
+  if (d==="mode-play"){ S.mode="play"; render(); }
+  else if (d==="mode-drill"){ S.mode="drill"; if (!S.drill) newDrill(); else render(); }
+  else if (d==="d-next"){ newDrill(); }
+  else if (d==="d-reset"){ resetDrill(); }
+  else if (d.indexOf("d-")===0){ drillAnswer(d.slice(2)); }
+  else if (d==="deal"){ deal(); }
+  else if (d==="hint"){ showHint(); }
+  else if (d==="reset"){ resetStats(); }
+  else { act(d); }
 });
+
+load();
 deal();
 
 </script>
